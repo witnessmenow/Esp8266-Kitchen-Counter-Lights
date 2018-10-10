@@ -17,6 +17,7 @@
  *******************************************************************/
 
 #include <ESP8266WiFi.h>
+
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
@@ -30,9 +31,7 @@
 // Available on the library manager (Search for "Encoder")
 // https://github.com/PaulStoffregen/Encoder
 
-#include "WemoSwitch.h"
-#include "WemoManager.h"
-#include "CallbackFunction.h"
+#include "fauxmoESP.h"
 
 #include "secret.h"
 
@@ -42,9 +41,6 @@ const char* password = WIFI_PASSWORD;
 
 // prototypes
 boolean connectWifi();
-
-//on/off callbacks
-void toggleLed();
 
 #define LED_STRIP D2
 
@@ -57,6 +53,8 @@ ESP8266WebServer server(80);
 
 Encoder myEnc(RE_DT, RE_CLK);
 
+fauxmoESP fauxmo;
+
 int pushButtonCoolDownDue = 0;
 int brightness = 200;
 boolean isLedsOn = false;
@@ -66,9 +64,6 @@ long oldPosition  = -999;
 const char *webpage =
 #include "webPage.h"
   ;
-
-WemoManager wemoManager;
-WemoSwitch *light = NULL;
 
 void handleRoot() {
   server.send(200, "text/html", webpage);
@@ -121,10 +116,22 @@ void setup() {
   pinMode(LED_STRIP, OUTPUT);
   pinMode(RE_SW, INPUT_PULLUP);
 
-  wemoManager.begin();
-  // Format: Alexa invocation name, local port no, on callback, off callback
-  light = new WemoSwitch("counter lights", 81, toggleLed, toggleLed);
-  wemoManager.addDevice(*light);
+      // You can enable or disable the library at any moment
+    // Disabling it will prevent the devices from being discovered and switched
+    fauxmo.enable(true);
+
+    // Add virtual devices
+    fauxmo.addDevice("switch one");
+
+    fauxmo.onSetState([](unsigned char device_id, const char * device_name, bool state) {
+        Serial.printf("[MAIN] Device #%d (%s) state: %s\n", device_id, device_name, state ? "ON" : "OFF");
+        toggleLed();
+    });
+
+    // Callback to retrieve current state (for GetBinaryState queries)
+    fauxmo.onGetState([](unsigned char device_id, const char * device_name) {
+        return true;
+    });
 
   server.begin();
 }
@@ -142,7 +149,7 @@ void toggleLed() {
 
 // the loop function runs over and over again forever
 void loop() {
-  wemoManager.serverLoop();
+  fauxmo.handle();
   server.handleClient();
 
   int time = millis();
